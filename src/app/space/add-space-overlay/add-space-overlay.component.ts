@@ -18,7 +18,13 @@ import { ContextService } from '../../shared/context.service';
 import { SpaceNamespaceService } from '../../shared/runtime-console/space-namespace.service';
 import { SpaceTemplateService } from '../../shared/space-template.service';
 import { SpacesService } from '../../shared/spaces.service';
-
+/**
+ * Comments by ljelinko:
+ * - ask if currentSpace can be removed
+ * - ask createTransientSpace in createSpace
+ * - this.space.name.replace(/ /g, '_');
+ * - test validatorov
+ */
 @Component({
   encapsulation: ViewEncapsulation.None,
   selector: 'f8-add-space-overlay',
@@ -33,7 +39,6 @@ export class AddSpaceOverlayComponent implements OnInit {
   @ViewChild('description') description: ElementRef;
   @ViewChild('addSpaceOverlayNameInput') spaceNameInput: ElementRef;
 
-  currentSpace: Space;
   selectedTemplate: ProcessTemplate = null;
   spaceTemplates: ProcessTemplate[];
   space: Space;
@@ -54,25 +59,7 @@ export class AddSpaceOverlayComponent implements OnInit {
   }
 
   ngOnInit() {
-    this.subscriptions.push(this.context.current.subscribe((ctx: Context) => {
-      if (ctx.space) {
-        this.currentSpace = ctx.space;
-      }
-    }));
-    this.subscriptions.push(this.spaceTemplateService.getSpaceTemplates()
-      .subscribe((templates: ProcessTemplate[]) => {
-        this.spaceTemplates = templates.filter(t => t.attributes['can-construct']);
-        this.selectedTemplate = !!this.spaceTemplates.length ? this.spaceTemplates[0] : null;
-      }, () => {
-        this.spaceTemplates = [{
-          id: '0',
-          attributes: {
-            name: 'Default template',
-            description: 'This is a default space template'
-          }
-        } as ProcessTemplate];
-        this.selectedTemplate = this.spaceTemplates[0];
-    }));
+   this.subscriptions.push(this.loadSpaceTemplates());
     setTimeout(() => this.spaceNameInput.nativeElement.focus());
   }
 
@@ -80,6 +67,23 @@ export class AddSpaceOverlayComponent implements OnInit {
     this.subscriptions.forEach(sub => {
       sub.unsubscribe();
     });
+  }
+
+  loadSpaceTemplates() {
+    return this.spaceTemplateService.getSpaceTemplates()
+    .subscribe((templates: ProcessTemplate[]) => {
+      this.spaceTemplates = templates.filter(t => t.attributes['can-construct']);
+      this.selectedTemplate = !!this.spaceTemplates.length ? this.spaceTemplates[0] : null;
+    }, () => {
+      this.spaceTemplates = [{
+        id: '0',
+        attributes: {
+          name: 'Default template',
+          description: 'This is a default space template'
+        }
+      } as ProcessTemplate];
+      this.selectedTemplate = this.spaceTemplates[0];
+  });
   }
 
   /*
@@ -113,26 +117,34 @@ export class AddSpaceOverlayComponent implements OnInit {
     this.canSubmit = false;
     this.space.relationships['owned-by'].data.id = this.userService.currentLoggedInUser.id;
 
-    this.subscriptions.push(this.spaceService.create(this.space).pipe(
+    let s = this.updateConfigMap().subscribe(
+      this.redirect,
+      err => {
+          this.notifications.message(<Notification> {
+            message: `Failed to create "${this.space.name}"`,
+            type: NotificationType.DANGER
+          });
+        }
+      );
+    this.subscriptions.push(s);
+  }
+
+  updateConfigMap(): Observable<Space> {
+    return this.spaceService.create(this.space).pipe(
       switchMap(createdSpace => {
         return this.spaceNamespaceService
           .updateConfigMap(observableOf(createdSpace)).pipe(
           map(() => createdSpace),
           // Ignore any errors coming out here, we've logged and notified them earlier
           catchError(err => observableOf(createdSpace)));
-      }))
-      .subscribe(createdSpace => {
-          this.router.navigate([createdSpace.relationalData.creator.attributes.username,
-            createdSpace.attributes.name]);
-          this.showAddAppOverlay();
-          this.hideAddSpaceOverlay();
-        },
-        err => {
-          this.notifications.message(<Notification> {
-            message: `Failed to create "${this.space.name}"`,
-            type: NotificationType.DANGER
-        });
-    }));
+      }));
+  }
+
+  redirect(createdSpace: Space) {
+      this.router.navigate([createdSpace.relationalData.creator.attributes.username,
+        createdSpace.attributes.name]);
+      this.showAddAppOverlay();
+      this.hideAddSpaceOverlay();
   }
 
   hideAddSpaceOverlay(): void {

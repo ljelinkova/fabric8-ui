@@ -6,7 +6,8 @@ import { Router } from '@angular/router';
 import { Broadcaster, Logger, Notifications } from 'ngx-base';
 import { ProcessTemplate, Space, SpaceService } from 'ngx-fabric8-wit';
 import { Profile, User, UserService } from 'ngx-login-client';
-import { Observable, of as observableOf,  throwError as observableThrowError } from 'rxjs';
+import { Observable, of as observableOf,  Subscription, throwError as observableThrowError } from 'rxjs';
+import * as osioMocks from 'testing/osio-data-structure-mocks.ts';
 import { ContextService } from '../../shared/context.service';
 import { SpaceNamespaceService } from '../../shared/runtime-console/space-namespace.service';
 import { SpaceTemplateService } from '../../shared/space-template.service';
@@ -47,41 +48,6 @@ describe('AddSpaceOverlayComponent', () => {
     type: 'mock-type'
   };
 
-  let mockSpace: Space = {
-    name: 'mock-space',
-    path: 'mock-path',
-    teams: [
-      { name: 'mock-name', members: [ mockUser ] }
-    ],
-    defaultTeam: { name: 'mock-name', members: [ mockUser ] },
-    id: 'mock-id',
-    attributes: {
-      name: 'mock-attribute',
-      description: 'mock-description',
-      'updated-at': 'mock-updated-at',
-      'created-at': 'mock-created-at',
-      version: 0
-    },
-    type: 'mock-type',
-    links: {
-      self: 'mock-self'
-    },
-    relationships: {
-      areas: { links: { related: 'mock-related' } },
-      iterations: { links: { related: 'mock-related' } },
-      workitemtypegroups: { links: { related: 'mock-related' } },
-      'owned-by': {
-        data: {
-          id: mockUser.id,
-          type: mockUser.type
-        }
-      }
-    },
-    relationalData: {
-      creator: mockUser
-    }
-  };
-
   let mockSpaceTemplates: ProcessTemplate[] = [{
     attributes: {
       'can-construct': false,
@@ -111,7 +77,7 @@ describe('AddSpaceOverlayComponent', () => {
   beforeEach(() => {
     mockElementRef.nativeElement.value = {};
     mockSpaceNamespaceService.updateConfigMap = {};
-    mockSpaceService.create.and.returnValue(observableOf(mockSpace));
+    mockSpaceService.create.and.returnValue(observableOf(osioMocks.createSpace('spaceA')));
     mockUserService.currentLoggedInUser = mockUser;
 
     TestBed.configureTestingModule({
@@ -135,7 +101,31 @@ describe('AddSpaceOverlayComponent', () => {
     component = fixture.debugElement.componentInstance;
   });
 
+  describe('#ngOnInit', () => {
+    it('should load templates', async () => {
+      spyOn(component, 'loadSpaceTemplates');
+      fixture.detectChanges();
+      await fixture.whenStable();
+      expect(component.loadSpaceTemplates).toBeCalled();
+    });
+  });
+
+  describe('#ngOnDestroy', () => {
+    it('should unsubscribe subscriptions', () => {
+      let s1: Subscription = jasmine.createSpyObj('Subscription', ['unsubscribe']);
+      let s2: Subscription = jasmine.createSpyObj('Subscription', ['unsubscribe']);
+
+      component.subscriptions.push(s1);
+      component.subscriptions.push(s2);
+      component.ngOnDestroy();
+
+      expect(s1.unsubscribe).toBeCalled();
+      expect(s2.unsubscribe).toBeCalled();
+    });
+  });
+
   describe('#createSpace', () => {
+
     it('should add space template if available', () => {
       component.selectedTemplate = mockSpaceTemplates[1];
       component.createSpace();
@@ -148,7 +138,7 @@ describe('AddSpaceOverlayComponent', () => {
     it('should disable submit', () => {
       mockUserService.currentLoggedInUser = {};
       component.context = {
-        current: observableOf(mockSpace)
+        current: observableOf(osioMocks.createSpace('SpaceB'))
       };
       component.ngOnInit();
 
@@ -172,51 +162,44 @@ describe('AddSpaceOverlayComponent', () => {
     });
   });
 
-  describe('#getSpaceTemplate', () => {
-    it('should fetch and store the space templates', fakeAsync(() => {
-      component.context = {
-        current: observableOf(mockSpace)
-      };
+  describe('#loadSpaceTemplates', () => {
+    it('should fetch and filter and store the space templates and selectedTemplate', fakeAsync(() => {
       spyOn(component.spaceTemplateService, 'getSpaceTemplates').and.returnValue(
         observableOf(mockSpaceTemplates)
       );
-      component.ngOnInit();
-      fixture.detectChanges();
+
+      component.loadSpaceTemplates();
       tick();
+
       expect(component.spaceTemplateService.getSpaceTemplates).toHaveBeenCalled();
       expect(component.spaceTemplates.length).toBe(2);
       expect(component.selectedTemplate).toEqual(mockSpaceTemplates[1]);
     }));
 
-    it('should make selected space template null', fakeAsync(() => {
-      component.context = {
-        current: observableOf(mockSpace)
-      };
+    it('should fetch and filter and store empty space templates and null selectedTemplate', fakeAsync(() => {
       spyOn(component.spaceTemplateService, 'getSpaceTemplates').and.returnValue(
         observableOf([mockSpaceTemplates[0]])
       );
-      component.ngOnInit();
-      fixture.detectChanges();
+
+      component.loadSpaceTemplates();
       tick();
+
       expect(component.spaceTemplateService.getSpaceTemplates).toHaveBeenCalled();
       expect(component.spaceTemplates.length).toBe(0);
       expect(component.selectedTemplate).toBeNull();
     }));
 
-    it('should handle error and set the default spacetemplate', fakeAsync(() => {
-      component.context = {
-        current: observableOf(mockSpace)
-      };
+    it('should fetch and handle error and set the default selectedTemplate', fakeAsync(() => {
       spyOn(component.spaceTemplateService, 'getSpaceTemplates').and.returnValue(
         observableThrowError('err')
       );
-      component.ngOnInit();
-      fixture.detectChanges();
+
+      component.loadSpaceTemplates();
       tick();
+
       expect(component.spaceTemplateService.getSpaceTemplates).toHaveBeenCalled();
       expect(component.spaceTemplates.length).toBe(1);
       expect(component.selectedTemplate.id).toBe('0');
     }));
   });
-
 });
